@@ -38,6 +38,7 @@ use hashes::{sha256d, Hash};
 use hash_types::{BlockHash, FilterHash, TxMerkleNode, FilterHeader};
 
 use util::endian;
+use util::bip152;
 use util::psbt;
 
 use blockdata::transaction::{TxOut, Transaction, TxIn};
@@ -521,6 +522,7 @@ macro_rules! impl_array {
 
 impl_array!(2);
 impl_array!(4);
+impl_array!(6);
 impl_array!(8);
 impl_array!(10);
 impl_array!(12);
@@ -595,13 +597,15 @@ impl_vec!(Vec<u8>);
 impl_vec!((u32, Address));
 impl_vec!(u64);
 impl_vec!(AddrV2Message);
+impl_vec!(VarInt);
+impl_vec!(bip152::ShortId);
+impl_vec!(bip152::PrefilledTransaction);
 
 fn consensus_encode_with_size<S: io::Write>(data: &[u8], mut s: S) -> Result<usize, io::Error> {
     let vi_len = VarInt(data.len() as u64).consensus_encode(&mut s)?;
     s.emit_slice(&data)?;
     Ok(vi_len + data.len())
 }
-
 
 impl Encodable for Vec<u8> {
     #[inline]
