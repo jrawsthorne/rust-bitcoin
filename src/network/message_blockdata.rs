@@ -37,10 +37,12 @@ pub enum Inventory {
     Block(BlockHash),
     /// Witness Transaction by Wtxid
     WTx(Wtxid),
-    /// Witness Transaction
-    WitnessTransaction(Txid),
+    /// Compact Block
+    CompactBlock(BlockHash),
     /// Witness Block
     WitnessBlock(BlockHash),
+    /// Witness Transaction
+    WitnessTransaction(Txid),
     /// Unknown inventory type
     Unknown {
         /// The inventory item type.
