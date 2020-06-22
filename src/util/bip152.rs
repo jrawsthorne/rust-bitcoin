@@ -82,7 +82,7 @@ impl Decodable for PrefilledTransaction {
 }
 
 /// Short transaction IDs are used to represent a transaction without sending a full 256-bit hash.
-#[derive(PartialEq, Eq, Clone, Default)]
+#[derive(PartialEq, Eq, Clone, Default, Hash, Copy)]
 pub struct ShortId(pub [u8; 6]);
 
 impl ShortId {
@@ -90,10 +90,10 @@ impl ShortId {
     pub fn calculate_siphash_keys(header: &BlockHeader, nonce: u64) -> (u64, u64) {
         // 1. single-SHA256 hashing the block header with the nonce appended (in little-endian)
         let h = {
-            let mut b: Vec<u8> = vec![];
-            header.consensus_encode(&mut b).expect("Vec<u8>");
-            nonce.consensus_encode(&mut b).expect("Vec<u8>");
-            sha256::Hash::hash(&b)
+            let mut e = sha256::Hash::engine();
+            header.consensus_encode(&mut e).unwrap();
+            nonce.consensus_encode(&mut e).unwrap();
+            sha256::Hash::from_engine(e)
         };
 
         // 2. Running SipHash-2-4 with the input being the transaction ID and the keys (k0/k1)
@@ -266,8 +266,9 @@ impl Encodable for BlockTransactionsRequest {
         // Manually encode indexes because they are differentially encoded VarInts.
         len += VarInt(self.indexes.len() as u64).consensus_encode(&mut s)?;
         let mut last_idx = 0;
-        for idx in &self.indexes {
-            len += VarInt(*idx - last_idx).consensus_encode(&mut s)?;
+        for (i, idx) in self.indexes.iter().enumerate() {
+            let index = if i > 0 { idx - (last_idx + 1) } else { *idx };
+            len += VarInt(index).consensus_encode(&mut s)?;
             last_idx = *idx;
         }
         Ok(len)

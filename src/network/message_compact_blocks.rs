@@ -10,7 +10,7 @@ pub struct SendCmpct {
     /// Request to be send compact blocks.
     pub send_compact: bool,
     /// Compact Blocks protocol version number.
-    pub version: u32,
+    pub version: u64,
 }
 impl_consensus_encoding!(SendCmpct, send_compact, version);
 
