@@ -56,7 +56,7 @@ use consensus::encode::{self, Encodable, Decodable};
 /// 70001 - Support bloom filter messages `filterload`, `filterclear` `filteradd`, `merkleblock` and FILTERED_BLOCK inventory type
 /// 60002 - Support `mempool` message
 /// 60001 - Support `pong` message and nonce in `ping` message
-pub const PROTOCOL_VERSION: u32 = 70001;
+pub const PROTOCOL_VERSION: u32 = 70015;
 
 user_enum! {
     /// The cryptocurrency to act on
