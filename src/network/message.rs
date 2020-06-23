@@ -150,6 +150,7 @@ pub enum NetworkMessage {
     /// `pong`
     Pong(u64),
     // TODO: bloom filtering
+    FeeFilter(i64),
     /// BIP157 getcfilters
     GetCFilters(message_filter::GetCFilters),
     /// BIP157 cfilter
@@ -216,6 +217,7 @@ impl NetworkMessage {
             NetworkMessage::GetAddr    => "getaddr",
             NetworkMessage::Ping(_)    => "ping",
             NetworkMessage::Pong(_)    => "pong",
+            NetworkMessage::FeeFilter(_) => "feefilter",
             NetworkMessage::GetCFilters(_) => "getcfilters",
             NetworkMessage::CFilter(_) => "cfilter",
             NetworkMessage::GetCFHeaders(_) => "getcfheaders",
@@ -300,6 +302,7 @@ impl Encodable for RawNetworkMessage {
             NetworkMessage::Headers(ref dat) => serialize(&HeaderSerializationWrapper(dat)),
             NetworkMessage::Ping(ref dat)    => serialize(dat),
             NetworkMessage::Pong(ref dat)    => serialize(dat),
+            NetworkMessage::FeeFilter(ref dat) => serialize(dat),
             NetworkMessage::GetCFilters(ref dat) => serialize(dat),
             NetworkMessage::CFilter(ref dat) => serialize(dat),
             NetworkMessage::GetCFHeaders(ref dat) => serialize(dat),
@@ -375,6 +378,7 @@ impl Decodable for RawNetworkMessage {
             "ping"    => NetworkMessage::Ping(Decodable::consensus_decode(&mut mem_d)?),
             "pong"    => NetworkMessage::Pong(Decodable::consensus_decode(&mut mem_d)?),
             "tx"      => NetworkMessage::Tx(Decodable::consensus_decode(&mut mem_d)?),
+            "feefilter" => NetworkMessage::FeeFilter(Decodable::consensus_decode(&mut mem_d)?),
             "getcfilters" => NetworkMessage::GetCFilters(Decodable::consensus_decode(&mut mem_d)?),
             "cfilter" => NetworkMessage::CFilter(Decodable::consensus_decode(&mut mem_d)?),
             "getcfheaders" => NetworkMessage::GetCFHeaders(Decodable::consensus_decode(&mut mem_d)?),
