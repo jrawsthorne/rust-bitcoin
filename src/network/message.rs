@@ -28,11 +28,13 @@ use blockdata::transaction;
 use network::address::{Address, AddrV2Message};
 use network::message_network;
 use network::message_blockdata;
+use network::message_bloom;
 use network::message_compact_blocks;
 use network::message_filter;
 use consensus::encode::{CheckedData, Decodable, Encodable, VarInt};
 use consensus::{encode, serialize};
 use consensus::encode::MAX_VEC_SIZE;
+use util::merkleblock::MerkleBlock;
 
 /// The maximum number of [Inventory] items in an `inv` message.
 ///
@@ -149,8 +151,14 @@ pub enum NetworkMessage {
     Ping(u64),
     /// `pong`
     Pong(u64),
-    // TODO: bloom filtering
-    FeeFilter(i64),
+    /// `merkleblock`
+    MerkleBlock(MerkleBlock),
+    /// `filterload`
+    FilterLoad(message_bloom::FilterLoad),
+    /// `filteradd`
+    FilterAdd(message_bloom::FilterAdd),
+    /// `filterclear`
+    FilterClear,
     /// BIP157 getcfilters
     GetCFilters(message_filter::GetCFilters),
     /// BIP157 cfilter
@@ -217,7 +225,11 @@ impl NetworkMessage {
             NetworkMessage::GetAddr    => "getaddr",
             NetworkMessage::Ping(_)    => "ping",
             NetworkMessage::Pong(_)    => "pong",
+            NetworkMessage::MerkleBlock(_) => "merkleblock",
             NetworkMessage::FeeFilter(_) => "feefilter",
+            NetworkMessage::FilterLoad(_) => "filterload",
+            NetworkMessage::FilterAdd(_) => "filteradd",
+            NetworkMessage::FilterClear => "filterclear",
             NetworkMessage::GetCFilters(_) => "getcfilters",
             NetworkMessage::CFilter(_) => "cfilter",
             NetworkMessage::GetCFHeaders(_) => "getcfheaders",
@@ -302,7 +314,9 @@ impl Encodable for RawNetworkMessage {
             NetworkMessage::Headers(ref dat) => serialize(&HeaderSerializationWrapper(dat)),
             NetworkMessage::Ping(ref dat)    => serialize(dat),
             NetworkMessage::Pong(ref dat)    => serialize(dat),
-            NetworkMessage::FeeFilter(ref dat) => serialize(dat),
+            NetworkMessage::MerkleBlock(ref dat) => serialize(dat),
+            NetworkMessage::FilterLoad(ref dat) => serialize(dat),
+            NetworkMessage::FilterAdd(ref dat) => serialize(dat),
             NetworkMessage::GetCFilters(ref dat) => serialize(dat),
             NetworkMessage::CFilter(ref dat) => serialize(dat),
             NetworkMessage::GetCFHeaders(ref dat) => serialize(dat),
@@ -323,6 +337,7 @@ impl Encodable for RawNetworkMessage {
             | NetworkMessage::GetAddr
             | NetworkMessage::WtxidRelay
             | NetworkMessage::SendAddrV2 => vec![],
+            | NetworkMessage::FilterClear => vec![],
             NetworkMessage::Unknown { payload: ref data, .. } => serialize(data),
         }).consensus_encode(&mut s)?;
         Ok(len)
@@ -378,7 +393,6 @@ impl Decodable for RawNetworkMessage {
             "ping"    => NetworkMessage::Ping(Decodable::consensus_decode(&mut mem_d)?),
             "pong"    => NetworkMessage::Pong(Decodable::consensus_decode(&mut mem_d)?),
             "tx"      => NetworkMessage::Tx(Decodable::consensus_decode(&mut mem_d)?),
-            "feefilter" => NetworkMessage::FeeFilter(Decodable::consensus_decode(&mut mem_d)?),
             "getcfilters" => NetworkMessage::GetCFilters(Decodable::consensus_decode(&mut mem_d)?),
             "cfilter" => NetworkMessage::CFilter(Decodable::consensus_decode(&mut mem_d)?),
             "getcfheaders" => NetworkMessage::GetCFHeaders(Decodable::consensus_decode(&mut mem_d)?),
@@ -395,6 +409,10 @@ impl Decodable for RawNetworkMessage {
             "wtxidrelay" => NetworkMessage::WtxidRelay,
             "addrv2" => NetworkMessage::AddrV2(Decodable::consensus_decode(&mut mem_d)?),
             "sendaddrv2" => NetworkMessage::SendAddrV2,
+            "merkleblock" => NetworkMessage::MerkleBlock(Decodable::consensus_decode(&mut mem_d)?),
+            "filterload" => NetworkMessage::FilterLoad(Decodable::consensus_decode(&mut mem_d)?),
+            "filteradd" => NetworkMessage::FilterAdd(Decodable::consensus_decode(&mut mem_d)?),
+            "filterclear" => NetworkMessage::FilterClear,
             _ => NetworkMessage::Unknown {
                 command: cmd,
                 payload: mem_d.into_inner(),

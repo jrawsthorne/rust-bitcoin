@@ -37,12 +37,16 @@ pub enum Inventory {
     Block(BlockHash),
     /// Witness Transaction by Wtxid
     WTx(Wtxid),
+    /// Filtered Block
+    FilteredBlock(BlockHash),
     /// Compact Block
     CompactBlock(BlockHash),
     /// Witness Block
     WitnessBlock(BlockHash),
     /// Witness Transaction
     WitnessTransaction(Txid),
+    /// Witness Filtered Block
+    WitnessFilteredBlock(BlockHash),
     /// Unknown inventory type
     Unknown {
         /// The inventory item type.
@@ -68,10 +72,13 @@ impl Encodable for Inventory {
             Inventory::Error => encode_inv!(0, sha256d::Hash::default()),
             Inventory::Transaction(ref t) => encode_inv!(1, t),
             Inventory::Block(ref b) => encode_inv!(2, b),
+            Inventory::FilteredBlock(ref b) => encode_inv!(3, b),
+            Inventory::CompactBlock(ref b) => encode_inv!(4, b),
             Inventory::WTx(w) => encode_inv!(5, w),
             Inventory::WitnessTransaction(ref t) => encode_inv!(0x40000001, t),
             Inventory::WitnessBlock(ref b) => encode_inv!(0x40000002, b),
-            Inventory::Unknown { inv_type: t, hash: ref d } => encode_inv!(t, d),
+            Inventory::WitnessFilteredBlock(ref b) => encode_inv!(0x40000003, b),
+            Inventory::Unknown { inv_type: t, hash: ref d } => encode_inv!(t, d)
         })
     }
 }
