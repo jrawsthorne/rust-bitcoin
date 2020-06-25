@@ -6,13 +6,13 @@
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FilterLoad {
     /// The filter itself
-    filter: Vec<u8>,
+    pub filter: Vec<u8>,
     /// The number of hash functions to use
-    hash_funcs: u32,
+    pub hash_funcs: u32,
     /// A random value
-    tweak: u32,
+    pub tweak: u32,
     /// Controls how matched items are added to the filter
-    flags: u8,
+    pub flags: u8,
 }
 
 impl_consensus_encoding!(FilterLoad, filter, hash_funcs, tweak, flags);
@@ -21,7 +21,7 @@ impl_consensus_encoding!(FilterLoad, filter, hash_funcs, tweak, flags);
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FilterAdd {
     /// The data element to add to the current filter.
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl_consensus_encoding!(FilterAdd, data);
