@@ -48,7 +48,6 @@ use std::{cmp, fmt, io};
 use std::collections::HashSet;
 use std::error;
 use std::fmt::{Display, Formatter};
-use std::io::Cursor;
 use std::cmp::Ordering;
 
 
@@ -123,40 +122,40 @@ impl BlockFilter {
     }
 
     /// Compute a SCRIPT_FILTER that contains spent and output scripts
-    pub fn new_script_filter<M>(block: &Block, script_for_coin: M) -> Result<BlockFilter, Error>
-        where M: Fn(&OutPoint) -> Result<Script, Error> {
-        let mut out = Cursor::new(Vec::new());
+    pub fn new_script_filter<'a, M>(block: &'a Block, script_for_coin: M) -> Result<BlockFilter, Error>
+        where M: Fn(&OutPoint) -> Result<&'a Script, Error> {
+        let mut out = Vec::new();
         {
             let mut writer = BlockFilterWriter::new(&mut out, block);
             writer.add_output_scripts();
             writer.add_input_scripts(script_for_coin)?;
             writer.finish()?;
         }
-        Ok(BlockFilter { content: out.into_inner() })
+        Ok(BlockFilter { content: out })
     }
 
     /// match any query pattern
-    pub fn match_any(&self, block_hash: &BlockHash, query: &mut dyn Iterator<Item=&[u8]>) -> Result<bool, Error> {
+    pub fn match_any<'a, Q: Iterator<Item = &'a [u8]>>(&self, block_hash: &BlockHash, query: Q) -> Result<bool, Error> {
         let filter_reader = BlockFilterReader::new(block_hash);
-        filter_reader.match_any(&mut Cursor::new(self.content.as_slice()), query)
+        filter_reader.match_any(self.content.as_slice(), query)
     }
 
     /// match all query pattern
-    pub fn match_all(&self, block_hash: &BlockHash, query: &mut dyn Iterator<Item=&[u8]>) -> Result<bool, Error> {
+    pub fn match_all<'a, Q: Iterator<Item = &'a [u8]>>(&self, block_hash: &BlockHash, query: Q) -> Result<bool, Error> {
         let filter_reader = BlockFilterReader::new(block_hash);
-        filter_reader.match_all(&mut Cursor::new(self.content.as_slice()), query)
+        filter_reader.match_all(self.content.as_slice(), query)
     }
 }
 
 /// Compiles and writes a block filter
-pub struct BlockFilterWriter<'a> {
+pub struct BlockFilterWriter<'a, W> {
     block: &'a Block,
-    writer: GCSFilterWriter<'a>,
+    writer: GCSFilterWriter<W>,
 }
 
-impl<'a> BlockFilterWriter<'a> {
+impl<'a, W: io::Write> BlockFilterWriter<'a, W> {
     /// Create a block filter writer
-    pub fn new(writer: &'a mut dyn io::Write, block: &'a Block) -> BlockFilterWriter<'a> {
+    pub fn new(writer: W, block: &'a Block) -> BlockFilterWriter<'a, W> {
         let block_hash_as_int = block.block_hash().into_inner();
         let k0 = endian::slice_to_u64_le(&block_hash_as_int[0..8]);
         let k1 = endian::slice_to_u64_le(&block_hash_as_int[8..16]);
@@ -177,7 +176,7 @@ impl<'a> BlockFilterWriter<'a> {
 
     /// Add consumed output scripts of a block to filter
     pub fn add_input_scripts<M>(&mut self, script_for_coin: M) -> Result<(), Error>
-        where M: Fn(&OutPoint) -> Result<Script, Error> {
+        where M: Fn(&OutPoint) -> Result<&'a Script, Error> {
         for script in self.block.txdata.iter()
             .skip(1) // skip coinbase
             .flat_map(|t| t.input.iter().map(|i| &i.previous_output))
@@ -217,21 +216,20 @@ impl BlockFilterReader {
     }
 
     /// match any query pattern
-    pub fn match_any(&self, reader: &mut dyn io::Read, query: &mut dyn Iterator<Item=&[u8]>) -> Result<bool, Error> {
+    pub fn match_any<'a, 'b, R: io::Read, Q: Iterator<Item = &'b [u8]>>(&'a self, reader: R, query: Q) -> Result<bool, Error> {
         self.reader.match_any(reader, query)
     }
 
     /// match all query pattern
-    pub fn match_all(&self, reader: &mut dyn io::Read, query: &mut dyn Iterator<Item=&[u8]>) -> Result<bool, Error> {
+    pub fn match_all<'a, 'b, R: io::Read, Q: Iterator<Item = &'b [u8]>>(&'a self, reader: R, query: Q) -> Result<bool, Error> {
         self.reader.match_all(reader, query)
     }
 }
 
-
 /// Golomb-Rice encoded filter reader
 pub struct GCSFilterReader {
     filter: GCSFilter,
-    m: u64
+    m: u64,
 }
 
 impl GCSFilterReader {
@@ -241,7 +239,7 @@ impl GCSFilterReader {
     }
 
     /// match any query pattern
-    pub fn match_any(&self, reader: &mut dyn io::Read, query: &mut dyn Iterator<Item=&[u8]>) -> Result<bool, Error> {
+    pub fn match_any<'a, 'b, R: io::Read, Q: Iterator<Item = &'b [u8]>>(&'a self, reader: R, query: Q) -> Result<bool, Error> {
         let mut decoder = reader;
         let n_elements: VarInt = Decodable::consensus_decode(&mut decoder).unwrap_or(VarInt(0));
         let reader = &mut decoder;
@@ -281,7 +279,7 @@ impl GCSFilterReader {
     }
 
     /// match all query pattern
-    pub fn match_all(&self, reader: &mut dyn io::Read, query: &mut dyn Iterator<Item=&[u8]>) -> Result<bool, Error> {
+    pub fn match_all<'a, 'b, R: io::Read, Q: Iterator<Item = &'b [u8]>>(&'a self, reader: R, query: Q) -> Result<bool, Error> {
         let mut decoder = reader;
         let n_elements: VarInt = Decodable::consensus_decode(&mut decoder).unwrap_or(VarInt(0));
         let reader = &mut decoder;
@@ -328,16 +326,16 @@ fn map_to_range(hash: u64, nm: u64) -> u64 {
 }
 
 /// Colomb-Rice encoded filter writer
-pub struct GCSFilterWriter<'a> {
+pub struct GCSFilterWriter<W> {
     filter: GCSFilter,
-    writer: &'a mut dyn io::Write,
+    writer: W,
     elements: HashSet<Vec<u8>>,
     m: u64
 }
 
-impl<'a> GCSFilterWriter<'a> {
+impl<W: io::Write> GCSFilterWriter<W> {
     /// Create a new GCS writer wrapping a generic writer, with specific seed to siphash
-    pub fn new(writer: &'a mut dyn io::Write, k0: u64, k1: u64, m: u64, p: u8) -> GCSFilterWriter<'a> {
+    pub fn new(writer: W, k0: u64, k1: u64, m: u64, p: u8) -> GCSFilterWriter<W> {
         GCSFilterWriter {
             filter: GCSFilter::new(k0, k1, p),
             writer,
@@ -363,12 +361,12 @@ impl<'a> GCSFilterWriter<'a> {
         mapped.sort();
 
         // write number of elements as varint
-        let mut encoder = io::Cursor::new(Vec::new());
+        let mut encoder = Vec::new();
         VarInt(mapped.len() as u64).consensus_encode(&mut encoder).unwrap();
-        let mut wrote = self.writer.write(encoder.into_inner().as_slice())?;
+        let mut wrote = self.writer.write(encoder.as_slice())?;
 
         // write out deltas of sorted values into a Golonb-Rice coded bit stream
-        let mut writer = BitStreamWriter::new(self.writer);
+        let mut writer = BitStreamWriter::new(&mut self.writer);
         let mut last = 0;
         for data in mapped {
             wrote += self.filter.golomb_rice_encode(&mut writer, data - last)?;
@@ -393,7 +391,7 @@ impl GCSFilter {
     }
 
     /// Golomb-Rice encode a number n to a bit stream (Parameter 2^k)
-    fn golomb_rice_encode(&self, writer: &mut BitStreamWriter, n: u64) -> Result<usize, io::Error> {
+    fn golomb_rice_encode<W: io::Write>(&self, writer: &mut BitStreamWriter<W>, n: u64) -> Result<usize, io::Error> {
         let mut wrote = 0;
         let mut q = n >> self.p;
         while q > 0 {
@@ -407,7 +405,7 @@ impl GCSFilter {
     }
 
     /// Golomb-Rice decode a number from a bit stream (Parameter 2^k)
-    fn golomb_rice_decode(&self, reader: &mut BitStreamReader) -> Result<u64, io::Error> {
+    fn golomb_rice_decode<R: io::Read>(&self, reader: &mut BitStreamReader<R>) -> Result<u64, io::Error> {
         let mut q = 0u64;
         while reader.read(1)? == 1 {
             q += 1;
@@ -423,15 +421,15 @@ impl GCSFilter {
 }
 
 /// Bitwise stream reader
-pub struct BitStreamReader<'a> {
+pub struct BitStreamReader<R> {
     buffer: [u8; 1],
     offset: u8,
-    reader: &'a mut dyn io::Read,
+    reader: R,
 }
 
-impl<'a> BitStreamReader<'a> {
+impl<R: io::Read> BitStreamReader<R> {
     /// Create a new BitStreamReader that reads bitwise from a given reader
-    pub fn new(reader: &'a mut dyn io::Read) -> BitStreamReader {
+    pub fn new(reader: R) -> BitStreamReader<R> {
         BitStreamReader {
             buffer: [0u8],
             reader: reader,
@@ -461,15 +459,15 @@ impl<'a> BitStreamReader<'a> {
 }
 
 /// Bitwise stream writer
-pub struct BitStreamWriter<'a> {
+pub struct BitStreamWriter<W> {
     buffer: [u8; 1],
     offset: u8,
-    writer: &'a mut dyn io::Write,
+    writer: W,
 }
 
-impl<'a> BitStreamWriter<'a> {
+impl<W: io::Write> BitStreamWriter<W> {
     /// Create a new BitStreamWriter that writes bitwise to a given writer
-    pub fn new(writer: &'a mut dyn io::Write) -> BitStreamWriter {
+    pub fn new(writer: W) -> BitStreamWriter<W> {
         BitStreamWriter {
             buffer: [0u8],
             writer: writer,
@@ -511,7 +509,6 @@ impl<'a> BitStreamWriter<'a> {
 #[cfg(test)]
 mod test {
     use std::collections::{HashSet, HashMap};
-    use std::io::Cursor;
 
     use hash_types::BlockHash;
     use hashes::hex::FromHex;
@@ -563,7 +560,7 @@ mod test {
 
             let filter = BlockFilter::new_script_filter(&block,
                                         |o| if let Some(s) = txmap.get(o) {
-                                            Ok(s.clone())
+                                            Ok(s)
                                         } else {
                                             Err(Error::UtxoMissing(o.clone()))
                                         }).unwrap();
@@ -609,7 +606,7 @@ mod test {
         patterns.insert(Vec::from_hex("eeeeee").unwrap());
         patterns.insert(Vec::from_hex("ffffff").unwrap());
 
-        let mut out = Cursor::new(Vec::new());
+        let mut out = Vec::new();
         {
             let mut writer = GCSFilterWriter::new(&mut out, 0, 0, M, P);
             for p in &patterns {
@@ -618,7 +615,7 @@ mod test {
             writer.finish().unwrap();
         }
 
-        let bytes = out.into_inner();
+        let bytes = out;
 
         {
             let mut query = Vec::new();
@@ -626,8 +623,10 @@ mod test {
             query.push(Vec::from_hex("eeeeee").unwrap());
 
             let reader = GCSFilterReader::new(0, 0, M, P);
-            let mut input = Cursor::new(bytes.clone());
-            assert!(reader.match_any(&mut input, &mut query.iter().map(|v| v.as_slice())).unwrap());
+            let input = bytes.clone();
+            assert!(reader
+                .match_any(input.as_slice(), query.iter().map(|v| v.as_slice()))
+                .unwrap());
         }
         {
             let mut query = Vec::new();
@@ -635,8 +634,8 @@ mod test {
             query.push(Vec::from_hex("123456").unwrap());
 
             let reader = GCSFilterReader::new(0, 0, M, P);
-            let mut input = Cursor::new(bytes.clone());
-            assert!(!reader.match_any(&mut input, &mut query.iter().map(|v| v.as_slice())).unwrap());
+            let input = bytes.clone();
+            assert!(!reader.match_any(input.as_slice(), query.iter().map(|v| v.as_slice())).unwrap());
         }
         {
             let reader = GCSFilterReader::new(0, 0, M, P);
@@ -644,8 +643,8 @@ mod test {
             for p in &patterns {
                 query.push(p.clone());
             }
-            let mut input = Cursor::new(bytes.clone());
-            assert!(reader.match_all(&mut input, &mut query.iter().map(|v| v.as_slice())).unwrap());
+            let input = bytes.clone();
+            assert!(reader.match_all(input.as_slice(), query.iter().map(|v| v.as_slice())).unwrap());
         }
         {
             let reader = GCSFilterReader::new(0, 0, M, P);
@@ -654,14 +653,14 @@ mod test {
                 query.push(p.clone());
             }
             query.push(Vec::from_hex("abcdef").unwrap());
-            let mut input = Cursor::new(bytes.clone());
-            assert!(!reader.match_all(&mut input, &mut query.iter().map(|v| v.as_slice())).unwrap());
+            let input = bytes.clone();
+            assert!(!reader.match_all(input.as_slice(), query.iter().map(|v| v.as_slice())).unwrap());
         }
     }
 
     #[test]
     fn test_bit_stream() {
-        let mut out = Cursor::new(Vec::new());
+        let mut out = Vec::new();
         {
             let mut writer = BitStreamWriter::new(&mut out);
             writer.write(0, 1).unwrap(); // 0
@@ -673,10 +672,10 @@ mod test {
             writer.write(7, 7).unwrap(); // 0000111
             writer.flush().unwrap();
         }
-        let bytes = out.into_inner();
+        let bytes = out;
         assert_eq!("01011010110000110000000001110000", format!("{:08b}{:08b}{:08b}{:08b}", bytes[0], bytes[1], bytes[2], bytes[3]));
         {
-            let mut input = Cursor::new(bytes);
+            let mut input = bytes.as_slice();
             let mut reader = BitStreamReader::new(&mut input);
             assert_eq!(reader.read(1).unwrap(), 0);
             assert_eq!(reader.read(2).unwrap(), 2);
