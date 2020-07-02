@@ -91,9 +91,12 @@ impl Decodable for Inventory {
             0 => Inventory::Error,
             1 => Inventory::Transaction(Decodable::consensus_decode(&mut d)?),
             2 => Inventory::Block(Decodable::consensus_decode(&mut d)?),
+            3 => Inventory::FilteredBlock(Decodable::consensus_decode(&mut d)?),
+            4 => Inventory::CompactBlock(Decodable::consensus_decode(&mut d)?),
             5 => Inventory::WTx(Decodable::consensus_decode(&mut d)?),
             0x40000001 => Inventory::WitnessTransaction(Decodable::consensus_decode(&mut d)?),
             0x40000002 => Inventory::WitnessBlock(Decodable::consensus_decode(&mut d)?),
+            0x40000003 => Inventory::WitnessFilteredBlock(Decodable::consensus_decode(&mut d)?),
             tp => Inventory::Unknown {
                 inv_type: tp,
                 hash: Decodable::consensus_decode(&mut d)?,
