@@ -33,7 +33,7 @@ pub enum BloomFlags {
 }
 
 impl Encodable for BloomFlags {
-    fn consensus_encode<W: io::Write>(&self, mut e: W) -> Result<usize, encode::Error> {
+    fn consensus_encode<W: io::Write>(&self, mut e: W) -> Result<usize, std::io::Error> {
         e.write_all(&[match self {
             BloomFlags::None => 0,
             BloomFlags::All => 1,

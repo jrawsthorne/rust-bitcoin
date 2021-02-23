@@ -226,7 +226,6 @@ impl NetworkMessage {
             NetworkMessage::Ping(_)    => "ping",
             NetworkMessage::Pong(_)    => "pong",
             NetworkMessage::MerkleBlock(_) => "merkleblock",
-            NetworkMessage::FeeFilter(_) => "feefilter",
             NetworkMessage::FilterLoad(_) => "filterload",
             NetworkMessage::FilterAdd(_) => "filteradd",
             NetworkMessage::FilterClear => "filterclear",

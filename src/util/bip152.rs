@@ -15,7 +15,7 @@
 //! Implementation of compact blocks data structure and algorithms.
 //!
 
-use std::{error, fmt, io};
+use std::{fmt, io};
 
 use hashes::{hex, sha256, sha256d, siphash24, Hash};
 
@@ -23,7 +23,6 @@ use blockdata::block::{Block, BlockHeader};
 use blockdata::transaction::Transaction;
 use consensus::encode::{self, Decodable, Encodable, VarInt};
 use util::endian;
-use util::hash::BitcoinHash;
 
 /// A BIP-152 error
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -35,31 +34,6 @@ pub enum Error {
     TxIndexOutOfRange(u64),
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let desc = error::Error::description(self);
-        match *self {
-            Error::TxIndexOutOfRange(i) => write!(f, "{}: {}", desc, i),
-            _ => f.write_str(desc),
-        }
-    }
-}
-
-impl error::Error for Error {
-    fn cause(&self) -> Option<&error::Error> {
-        None
-    }
-
-    fn description(&self) -> &str {
-        match *self {
-            Error::UnknownVersion => "an unknown version number was used",
-            Error::TxIndexOutOfRange(_) => {
-                "a transaction index is requested that is out of range from the corresponding block"
-            }
-        }
-    }
-}
-
 /// A PrefilledTransaction structure is used in HeaderAndShortIDs to
 /// provide a list of a few transactions explicitly.
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -67,7 +41,7 @@ pub struct PrefilledTransaction(pub u64, pub Transaction);
 
 impl Encodable for PrefilledTransaction {
     #[inline]
-    fn consensus_encode<S: io::Write>(&self, mut s: S) -> Result<usize, encode::Error> {
+    fn consensus_encode<S: io::Write>(&self, mut s: S) -> Result<usize, std::io::Error> {
         Ok(VarInt(self.0).consensus_encode(&mut s)? + self.1.consensus_encode(s)?)
     }
 }
@@ -143,7 +117,7 @@ impl fmt::Debug for ShortId {
 
 impl Encodable for ShortId {
     #[inline]
-    fn consensus_encode<S: io::Write>(&self, s: S) -> Result<usize, encode::Error> {
+    fn consensus_encode<S: io::Write>(&self, s: S) -> Result<usize, std::io::Error> {
         self.0.consensus_encode(s)
     }
 }
@@ -231,8 +205,8 @@ impl HeaderAndShortIds {
             } else {
                 short_ids.push(ShortId::with_siphash_keys(
                     &match version {
-                        1 => tx.txid(),
-                        2 => tx.bitcoin_hash(), //TODO(stevenroose) use wtxid explicitly
+                        1 => tx.txid().as_hash(),
+                        2 => tx.wtxid().as_hash(), //TODO(stevenroose) use wtxid explicitly
                         _ => unreachable!(),
                     },
                     siphash_keys,
@@ -261,7 +235,7 @@ pub struct BlockTransactionsRequest {
 }
 
 impl Encodable for BlockTransactionsRequest {
-    fn consensus_encode<S: io::Write>(&self, mut s: S) -> Result<usize, encode::Error> {
+    fn consensus_encode<S: io::Write>(&self, mut s: S) -> Result<usize, std::io::Error> {
         let mut len = self.block_hash.consensus_encode(&mut s)?;
         // Manually encode indexes because they are differentially encoded VarInts.
         len += VarInt(self.indexes.len() as u64).consensus_encode(&mut s)?;
