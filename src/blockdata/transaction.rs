@@ -34,6 +34,7 @@ use blockdata::constants::WITNESS_SCALE_FACTOR;
 #[cfg(feature="bitcoinconsensus")] use blockdata::script;
 use blockdata::script::Script;
 use consensus::{encode, Decodable, Encodable};
+use consensus::encode::MAX_VEC_SIZE;
 use hash_types::{SigHash, Txid, Wtxid};
 use VarInt;
 
@@ -173,7 +174,7 @@ impl ::std::str::FromStr for OutPoint {
 }
 
 /// A transaction input, which defines old coins to be consumed
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TxIn {
     /// The reference to the previous output that is being used an an input
@@ -206,7 +207,7 @@ impl Default for TxIn {
 }
 
 /// A transaction output, which defines new coins to be created from old ones.
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TxOut {
     /// The value of the output, in satoshis
@@ -252,7 +253,7 @@ impl Default for TxOut {
 ///
 /// We therefore deviate from the spec by always using the Segwit witness encoding
 /// for 0-input transactions, which results in unambiguously parseable transactions.
-#[derive(Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Transaction {
     /// The protocol version, is currently expected to be 1 or 2 (BIP 68).
@@ -315,8 +316,8 @@ impl Transaction {
     /// evaluating `script_pubkey` to determine which separators get evaluated and which don't,
     /// which we don't have the information to determine.
     ///
-    /// # Panics Panics if `input_index` is greater than or equal to `self.input.len()`
-    ///
+    /// # Panics
+    /// Panics if `input_index` is greater than or equal to `self.input.len()`
     pub fn encode_signing_data_to<Write: io::Write, U: Into<u32>>(
         &self,
         mut writer: Write,
@@ -327,7 +328,7 @@ impl Transaction {
         let sighash_type : u32 = sighash_type.into();
         assert!(input_index < self.input.len());  // Panic on OOB
 
-        let (sighash, anyone_can_pay) = SigHashType::from_u32(sighash_type).split_anyonecanpay_flag();
+        let (sighash, anyone_can_pay) = SigHashType::from_u32_consensus(sighash_type).split_anyonecanpay_flag();
 
         // Special-case sighash_single bug because this is easy enough.
         if sighash == SigHashType::Single && input_index >= self.output.len() {
@@ -463,14 +464,22 @@ impl Transaction {
     }
 
     #[cfg(feature="bitcoinconsensus")]
+    /// Shorthand for [Self::verify_with_flags] with flag [bitcoinconsensus::VERIFY_ALL]
+    pub fn verify<S>(&self, spent: S) -> Result<(), script::Error>
+        where S: FnMut(&OutPoint) -> Option<TxOut> {
+        self.verify_with_flags(spent, ::bitcoinconsensus::VERIFY_ALL)
+    }
+
+    #[cfg(feature="bitcoinconsensus")]
     /// Verify that this transaction is able to spend its inputs
     /// The lambda spent should not return the same TxOut twice!
-    pub fn verify<S>(&self, mut spent: S) -> Result<(), script::Error>
-        where S: FnMut(&OutPoint) -> Option<TxOut> {
+    pub fn verify_with_flags<S, F>(&self, mut spent: S, flags: F) -> Result<(), script::Error>
+        where S: FnMut(&OutPoint) -> Option<TxOut>, F : Into<u32> {
         let tx = encode::serialize(&*self);
+        let flags: u32 = flags.into();
         for (idx, input) in self.input.iter().enumerate() {
             if let Some(output) = spent(&input.previous_output) {
-                output.script_pubkey.verify(idx, output.value, tx.as_slice())?;
+                output.script_pubkey.verify_with_flags(idx, ::Amount::from_sat(output.value), tx.as_slice(), flags)?;
             } else {
                 return Err(script::Error::UnknownSpentOutput(input.previous_output.clone()));
             }
@@ -566,7 +575,8 @@ impl Encodable for Transaction {
 }
 
 impl Decodable for Transaction {
-    fn consensus_decode<D: io::Read>(mut d: D) -> Result<Self, encode::Error> {
+    fn consensus_decode<D: io::Read>(d: D) -> Result<Self, encode::Error> {
+        let mut d = d.take(MAX_VEC_SIZE as u64);
         let version = i32::consensus_decode(&mut d)?;
         let input = Vec::<TxIn>::consensus_decode(&mut d)?;
         // segwit
@@ -695,7 +705,7 @@ impl SigHashType {
      /// Reads a 4-byte uint32 as a sighash type.
      ///
      /// **Note**: this replicates consensus behaviour, for current standardness rules correctness
-     /// you probably want [from_u32_standard].
+     /// you probably want [Self::from_u32_standard].
      pub fn from_u32_consensus(n: u32) -> SigHashType {
          // In Bitcoin Core, the SignatureHash function will mask the (int32) value with
          // 0x1f to (apparently) deactivate ACP when checking for SINGLE and NONE bits.
@@ -1037,10 +1047,12 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_sighashtype_standard() {
         let nonstandard_hashtype = 0x04;
         // This type is not well defined, by consensus it becomes ALL
         assert_eq!(SigHashType::from_u32(nonstandard_hashtype), SigHashType::All);
+        assert_eq!(SigHashType::from_u32_consensus(nonstandard_hashtype), SigHashType::All);
         // But it's policy-invalid to use it!
         assert_eq!(SigHashType::from_u32_standard(nonstandard_hashtype), Err(NonStandardSigHashType));
     }

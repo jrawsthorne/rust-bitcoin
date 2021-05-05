@@ -36,6 +36,7 @@
 #![deny(unused_imports)]
 #![deny(missing_docs)]
 #![deny(unused_must_use)]
+#![deny(broken_intra_doc_links)]
 
 // Re-exported dependencies.
 #[macro_use] pub extern crate bitcoin_hashes as hashes;
@@ -85,9 +86,14 @@ pub use util::address::AddressType;
 pub use util::amount::Amount;
 pub use util::amount::Denomination;
 pub use util::amount::SignedAmount;
-pub use util::key::PrivateKey;
-pub use util::key::PublicKey;
 pub use util::merkleblock::MerkleBlock;
+
+pub use util::ecdsa;
+pub use util::schnorr;
+#[deprecated(since = "0.26.1", note = "Please use `ecdsa::PrivateKey` instead")]
+pub use util::ecdsa::PrivateKey;
+#[deprecated(since = "0.26.1", note = "Please use `ecdsa::PublicKey` instead")]
+pub use util::ecdsa::PublicKey;
 
 #[cfg(all(test, feature = "unstable"))] use tests::EmptyWrite;
 

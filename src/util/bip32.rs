@@ -14,7 +14,7 @@
 //! BIP32 Implementation
 //!
 //! Implementation of BIP32 hierarchical deterministic wallets, as defined
-//! at https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
+//! at <https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki>
 
 use std::default::Default;
 use std::{error, fmt};
@@ -26,8 +26,8 @@ use hashes::{sha512, Hash, HashEngine, Hmac, HmacEngine};
 use secp256k1::{self, Secp256k1};
 
 use network::constants::Network;
-use util::{base58, endian};
-use util::key::{self, PublicKey, PrivateKey};
+use util::{base58, endian, key};
+use util::ecdsa::{PublicKey, PrivateKey};
 
 /// A chain code
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -169,8 +169,12 @@ impl From<ChildNumber> for u32 {
 impl fmt::Display for ChildNumber {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ChildNumber::Hardened { index } => write!(f, "{}'", index),
-            ChildNumber::Normal { index } => write!(f, "{}", index),
+            ChildNumber::Hardened { index } => {
+                fmt::Display::fmt(&index, f)?;
+                let alt = f.alternate();
+                f.write_str(if alt { "'" } else { "h" })
+            },
+            ChildNumber::Normal { index } => fmt::Display::fmt(&index, f),
         }
     }
 }
@@ -300,7 +304,7 @@ impl FromStr for DerivationPath {
 
 /// An iterator over children of a [DerivationPath].
 ///
-/// It is returned by the methods [DerivationPath::children_since],
+/// It is returned by the methods [DerivationPath::children_from],
 /// [DerivationPath::normal_children] and [DerivationPath::hardened_children].
 pub struct DerivationPathIterator<'a> {
     base: &'a DerivationPath,
@@ -1082,6 +1086,16 @@ mod tests {
             "0102030405060708090001020304050607080900010203040506070809000102",
             cc.to_string()
         );
+    }
+
+    #[test]
+    fn fmt_child_number() {
+        assert_eq!("000005'", &format!("{:#06}", ChildNumber::from_hardened_idx(5).unwrap()));
+        assert_eq!("5'", &format!("{:#}", ChildNumber::from_hardened_idx(5).unwrap()));
+        assert_eq!("000005h", &format!("{:06}", ChildNumber::from_hardened_idx(5).unwrap()));
+        assert_eq!("5h", &format!("{}", ChildNumber::from_hardened_idx(5).unwrap()));
+        assert_eq!("42", &format!("{}", ChildNumber::from_normal_idx(42).unwrap()));
+        assert_eq!("000042", &format!("{:06}", ChildNumber::from_normal_idx(42).unwrap()));
     }
 }
 

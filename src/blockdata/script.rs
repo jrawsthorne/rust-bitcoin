@@ -37,11 +37,17 @@ use hashes::{Hash, hex};
 #[cfg(feature="bitcoinconsensus")] use std::convert;
 #[cfg(feature="bitcoinconsensus")] use OutPoint;
 
-use util::key::PublicKey;
+use util::ecdsa::PublicKey;
 
 #[derive(Clone, Default, PartialOrd, Ord, PartialEq, Eq, Hash)]
 /// A Bitcoin script
 pub struct Script(Box<[u8]>);
+
+impl AsRef<[u8]> for Script {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 impl fmt::Debug for Script {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -425,7 +431,7 @@ impl Script {
     /// iterator will end. To instead iterate over the script as sequence of bytes, treat
     /// it as a slice using `script[..]` or convert it to a vector using `into_bytes()`.
     ///
-    /// To force minimal pushes, use [instructions_minimal].
+    /// To force minimal pushes, use [Self::instructions_minimal].
     pub fn instructions(&self) -> Instructions {
         Instructions {
             data: &self.0[..],
@@ -443,20 +449,27 @@ impl Script {
     }
 
     #[cfg(feature="bitcoinconsensus")]
-    /// verify spend of an input script
-    /// # Parameters
-    ///  * index - the input index in spending which is spending this transaction
-    ///  * amount - the amount this script guards
-    ///  * spending - the transaction that attempts to spend the output holding this script
+    /// Shorthand for [Self::verify_with_flags] with flag [bitcoinconsensus::VERIFY_ALL]
     pub fn verify (&self, index: usize, amount: u64, spending: &[u8]) -> Result<(), Error> {
-        Ok(bitcoinconsensus::verify (&self.0[..], amount, spending, index)?)
+        self.verify_with_flags(index, ::Amount::from_sat(amount), spending, ::bitcoinconsensus::VERIFY_ALL)
     }
 
-    /// Write the assembly decoding of the script to the formatter.
-    pub fn fmt_asm(&self, f: &mut dyn fmt::Write) -> fmt::Result {
+    #[cfg(feature="bitcoinconsensus")]
+    /// Verify spend of an input script
+    /// # Parameters
+    ///  * `index` - the input index in spending which is spending this transaction
+    ///  * `amount` - the amount this script guards
+    ///  * `spending` - the transaction that attempts to spend the output holding this script
+    ///  * `flags` - verification flags, see [bitcoinconsensus::VERIFY_ALL] and similar
+    pub fn verify_with_flags<F: Into<u32>>(&self, index: usize, amount: ::Amount, spending: &[u8], flags: F) -> Result<(), Error> {
+        Ok(bitcoinconsensus::verify_with_flags (&self.0[..], amount.as_sat(), spending, index, flags.into())?)
+    }
+
+    /// Write the assembly decoding of the script bytes to the formatter.
+    pub fn bytes_to_asm_fmt(script: &[u8], f: &mut dyn fmt::Write) -> fmt::Result {
         let mut index = 0;
-        while index < self.0.len() {
-            let opcode = opcodes::All::from(self.0[index]);
+        while index < script.len() {
+            let opcode = opcodes::All::from(script[index]);
             index += 1;
 
             let data_len = if let opcodes::Class::PushBytes(n) = opcode.classify() {
@@ -464,31 +477,31 @@ impl Script {
             } else {
                 match opcode {
                     opcodes::all::OP_PUSHDATA1 => {
-                        if self.0.len() < index + 1 {
+                        if script.len() < index + 1 {
                             f.write_str("<unexpected end>")?;
                             break;
                         }
-                        match read_uint(&self.0[index..], 1) {
+                        match read_uint(&script[index..], 1) {
                             Ok(n) => { index += 1; n as usize }
                             Err(_) => { f.write_str("<bad length>")?; break; }
                         }
                     }
                     opcodes::all::OP_PUSHDATA2 => {
-                        if self.0.len() < index + 2 {
+                        if script.len() < index + 2 {
                             f.write_str("<unexpected end>")?;
                             break;
                         }
-                        match read_uint(&self.0[index..], 2) {
+                        match read_uint(&script[index..], 2) {
                             Ok(n) => { index += 2; n as usize }
                             Err(_) => { f.write_str("<bad length>")?; break; }
                         }
                     }
                     opcodes::all::OP_PUSHDATA4 => {
-                        if self.0.len() < index + 4 {
+                        if script.len() < index + 4 {
                             f.write_str("<unexpected end>")?;
                             break;
                         }
-                        match read_uint(&self.0[index..], 4) {
+                        match read_uint(&script[index..], 4) {
                             Ok(n) => { index += 4; n as usize }
                             Err(_) => { f.write_str("<bad length>")?; break; }
                         }
@@ -507,8 +520,8 @@ impl Script {
             // Write any pushdata
             if data_len > 0 {
                 f.write_str(" ")?;
-                if index + data_len <= self.0.len() {
-                    for ch in &self.0[index..index + data_len] {
+                if index + data_len <= script.len() {
+                    for ch in &script[index..index + data_len] {
                             write!(f, "{:02x}", ch)?;
                     }
                     index += data_len;
@@ -521,11 +534,21 @@ impl Script {
         Ok(())
     }
 
+    /// Write the assembly decoding of the script to the formatter.
+    pub fn fmt_asm(&self, f: &mut dyn fmt::Write) -> fmt::Result {
+        Script::bytes_to_asm_fmt(self.as_ref(), f)
+    }
+
+    /// Create an assembly decoding of the script in the given byte slice.
+    pub fn bytes_to_asm(script: &[u8]) -> String {
+        let mut buf = String::new();
+        Script::bytes_to_asm_fmt(script, &mut buf).unwrap();
+        buf
+    }
+
     /// Get the assembly decoding of the script.
     pub fn asm(&self) -> String {
-        let mut buf = String::new();
-        self.fmt_asm(&mut buf).unwrap();
-        buf
+        Script::bytes_to_asm(self.as_ref())
     }
 }
 
@@ -873,7 +896,7 @@ mod test {
     use hashes::hex::{FromHex, ToHex};
     use consensus::encode::{deserialize, serialize};
     use blockdata::opcodes;
-    use util::key::PublicKey;
+    use util::ecdsa::PublicKey;
     use util::psbt::serialize::Serialize;
 
     #[test]

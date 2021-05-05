@@ -27,7 +27,7 @@ jobs:
               PIN_VERSIONS: true
     steps:
       - name: Install test dependencies
-        run: sudo apt-get install -y binutils-dev libunwind8-dev libcurl4-openssl-dev libelf-dev libdw-dev cmake gcc libiberty-dev
+        run: sudo apt-get update -y && sudo apt-get install -y binutils-dev libunwind8-dev libcurl4-openssl-dev libelf-dev libdw-dev cmake gcc libiberty-dev
       - name: Checkout Crate
         uses: actions/checkout@v2
       - name: Checkout Toolchain
@@ -39,3 +39,18 @@ jobs:
       - name: Running test script
         env: ${{ matrix.env }}
         run: ./contrib/test.sh
+
+  Docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Crate
+        uses: actions/checkout@v2
+      - name: Checkout Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Create Doc
+        run: cargo doc
